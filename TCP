@@ -1,0 +1,111 @@
+- Characters:
+	- stateful
+	- connection-oriented
+- Connection
+	- 4-tuples:
+		- origin port, origin IP, dest port, dest IP
+	- start --- three-handshakes
+		- SYN
+		- SYN-ACK
+		- ACK
+		- during this process, sliding window sizes are advertised
+	- end 
+		- mutual close - ack
+	- sequence # consumption rule
+		- 1 byte = 1
+		- pure ACK doesn't contribute
+		- acknowdged seq # is the first byte of next segment
+	- connection timeout and exponential backoff
+		- once timer is expired, timer doubles
+		- default # of maximum retries is 5
+	- TCP retransmission
+		- timer-based
+			- RTO too short --- a lot of unnecessary retransmissions
+			- RTO too long --- underutilization of bandwidth
+			- RTO value estimation
+				- TCP sender keeps updating the RTO value for a connection dynamically depending on the network state
+				- RTT --- Round-trip time
+				- RTO is based on a set of RTTs (average)
+				- a smoothing formula:
+					- new RTT = (x * average of Old RTTs) + ((1 - x) * Newest RTT measurement)
+					- x = smoothing factor between 0 and 1
+				- retransmission ambiguity problem
+					- TCP sender is not sure which segment the ACK acknowledges (original one or resent one?)
+					- Then it does not know how to calculate RTT: T4 - T1 or T4 - T3?
+					- Solution --- Karns Algorithm
+						- Ignore measured RTT for retransmitted segments for RTO calculation
+						- Use back-off RTO for retransmitted segments and do not consider their measured RTT for RTO calculations
+		- Fast Retransmission --- out of order
+			- dupACKs --- 3
+			- SACKs
+		- Cumulative ACKs (Delayed ACKs)
+			- when TCP receiver receives too many segments in quick succession, it acks all of them by single ACK
+			- delayed ACK timer
+				- as long as it is running,  TCP receiver will not send out ACK
+				- Or it has something sending back to TCP sender
+	- Data Flow Control
+		- sliding window size
+			- TCP send window 
+				- 4 categories
+					- bytes sent and acknowledged
+					- bytes sent but not acknowledged
+					- not sent but receiver is ready to receive --- usable window size
+					- bytes not send and receiver not ready to receive
+				- whenever the pure ACK is received, send window of TCP sender slides
+			- TCP receive window 
+				- 3 categories
+					- received and acknowledged
+					- not yet received but sender is permitted to send
+					- not yet received and sender is not permitted to send
+				- whenever the Data segment is received, receive window of receiver slides
+		- whenever the Data segment combined with ACK is received, both send and receive windows slide of who receive the Data segment
+		- send window = MIN(congestion window, receive window)
+		- advertised in three-handshakes (maximum size: 65535) and ACK
+		- Tinygrams
+			- head is larger than body
+			- solution: Nagel Algorithm --- TCP sender side
+				- set up minimum segment size by admin
+				- then TCP do not send segment of which size is less than the required size and wait for:
+					- either application sends more data
+					- OR all outstanding data segments have been acknowledged
+		- Two factors affect sliding window resizing
+			- receiver capacity --- control by receiver
+				- new receive window size = previous receive window size - pending data size
+				- once receive window size = 0:
+				- --- to restart communication, receiver needs to send a window opening ACK (pure ACK --- WOACK)
+				- --- TCP starts sending Probe Segments periodically (TCP ZeroWindowProbev --- 1 Byte) 
+					- the timer is called persistent timer whose initial value is set to 1 RTO, and then double (exponential back off);
+					- TCP sender never gives up sending probe segments
+					- TCP receiver needs to acknowledge it 
+						- if window size is still 0, then TCP ZeroWindowProbeACK
+						- if not, WOACK (accept the 1 byte and new seq # increased by 1)
+							- may cause Silly Window Syndrome (tinygrams)
+							- Solution: SWS Avoidance Rules --- TCP Receiver side
+								- if (usable receive window size < min(MSS, 1/2 of receiver original buffer space))
+								- then advertise receive window size as zero
+								- else TCP receiver triggers window opening ACK
+			- network capacity --- TCP congestion control --- control by sender
+				- 3 parts of congestion control procedures
+					- TCP sender somewhat detect that congestion is about to happen
+					- TCP sender slow down the rate of sending segments, and determine how slow
+					- TCP sender somewhat should be able to detect that network congestion state is improved and it can increase the rate of sending data and also determin how fast
+				- Congestion Window
+					- it is the measure of Network capacity
+				- Congestion Control Algorithms
+					- slow start
+						- executed when:
+							- new connection has just established
+							- RTO for a data segment happen (packet loss)
+							- TCP sender does not send any data and stay idle for some time
+						- starts at 1 MSS, then increaces the rate exponentially until it equals to ssthrash(no packet loss)
+						- by default, ssthrash = awnd, if RTO times out, ssthrash = MAX(cwnd/2, 2*MSS), restart from 1 MSS
+							- PS: cwnd = cwnd at the time when data loss is detected
+					- congestin avoidance
+						- executed after slow start is finished
+						- continue to inject more packet increasing the rate linearly by 1 MSS every time until packet loss is detected again OR cwnd = awnd
+					- Fast Recovery
+						- every time RTO happens, TCP has to restart from 1MSS no matter it happens in slow start or CA
+						- However, if packed loss is detected by TCP sender due to dupACK instead of RTO, and it happends in CA, fast recovery is triggered
+							- Procedure
+								- slow down to half (cwnd = cwnd/2 + 3; ssthrash = cwnd/2)
+								- still in CA
